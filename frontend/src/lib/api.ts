@@ -1,12 +1,13 @@
 import type { PipelineResponse } from './types';
 
-// Default to a same-origin path. In production (Vercel) this is rewritten by
-// vercel.json to the Railway-hosted n8n webhook. In local dev it is routed by
-// Vite's proxy in vite.config.ts to localhost:5678. Either way, the browser
-// sees a same-origin request, which sidesteps n8n's CORS / Origin-header bug.
+// Default to a same-origin path. In production (Vercel) /api/process-pdf is a
+// Node serverless function that proxies to the Railway-hosted n8n webhook.
+// In local dev Vite's proxy in vite.config.ts routes the same path to
+// localhost:5678. Either way the browser sees a same-origin request, which
+// sidesteps n8n's known cross-origin empty-body CORS edge case.
 const DEFAULT_WEBHOOK = '/api/process-pdf';
 const MAX_ATTEMPTS = 3;
-const BASE_BACKOFF_MS = 800;
+const BASE_BACKOFF_MS = 1_200;
 
 export function getWebhookUrl(): string {
   return import.meta.env.VITE_N8N_WEBHOOK_URL || DEFAULT_WEBHOOK;
@@ -18,7 +19,7 @@ export async function processPdf(pdfUrl: string): Promise<PipelineResponse> {
     last = await callOnce(pdfUrl);
     if (!shouldRetry(last)) return last;
     if (attempt < MAX_ATTEMPTS) {
-      await sleep(BASE_BACKOFF_MS * Math.pow(1.5, attempt - 1));
+      await sleep(BASE_BACKOFF_MS * attempt);
     }
   }
   return last as PipelineResponse;
@@ -73,11 +74,20 @@ async function callOnce(pdfUrl: string): Promise<PipelineResponse> {
   }
 }
 
+// Retry only on conditions known to be transient infrastructure/network issues.
+// We deliberately DO NOT retry on `no_pnl_found` — the workflow already does an
+// internal retry with a sharper prompt, and if it still comes back negative, the
+// document genuinely doesn't have a P&L table (e.g. earnings-call transcripts).
+// Retrying further would burn the Gemini budget on a guaranteed no-result.
 function shouldRetry(r: PipelineResponse): boolean {
   if (r.success) return false;
+  if ('reason' in r && r.reason === 'no_pnl_found') return false;
   if ('error' in r) {
+    const status = r.error.status || 0;
+    if (status === 0 || status === 502 || status === 503 || status === 504) return true;
     const m = (r.error.message || '').toLowerCase();
-    return m.includes('empty body') || m.includes('non-json');
+    if (m.includes('empty body')) return true;
+    if (m.includes('non-json')) return true;
   }
   return false;
 }
