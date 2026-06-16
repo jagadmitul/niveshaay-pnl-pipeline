@@ -29,8 +29,15 @@ const FLASH_MODEL = 'gemini-2.5-flash';
 const UPSTREAM_TIMEOUT_MS = 56_000;
 
 // If Flash returns first but Pro is "close behind", prefer Pro's higher
-// accuracy. Beyond this window we accept Flash so the user isn't left waiting.
-const PRO_PREFERENCE_WINDOW_MS = 3_000;
+// fidelity. Pro typically lands 15-25s after Flash on real BSE PDFs, so we
+// give it a generous window before falling back to Flash. The cap is bounded
+// by UPSTREAM_TIMEOUT_MS so we never blow past Vercel's 60s function limit.
+//
+// Why this matters: Arjun's prompt tells Gemini to "intelligently add or
+// remove fields". Flash takes that liberty more aggressively and condenses
+// the output to 6-9 rows; Pro stays closer to the full 12-21 row spec.
+// Waiting for Pro keeps the live output matching the reference iValue card.
+const PRO_PREFERENCE_WINDOW_MS = 22_000;
 
 export const config = {
   maxDuration: 60,
