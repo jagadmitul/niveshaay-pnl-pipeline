@@ -3,10 +3,9 @@
   "version": 2,
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
-  "rewrites": [
-    {
-      "source": "/api/process-pdf",
-      "destination": "https://niveshaay-n8n-production.up.railway.app/webhook/process-pdf"
+  "functions": {
+    "api/process-pdf.ts": {
+      "maxDuration": 60
     }
-  ]
+  }
 }
