@@ -25,7 +25,8 @@ services:
       - NODE_ENV=production
       - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/}
       - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-Asia/Kolkata}
-      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-niveshaay-dev-encryption-key-change-in-prod}
+      # Required. Set N8N_ENCRYPTION_KEY in .env to a random 32+ char string.
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
       # n8n blocks $env access in expressions by default for security.
       # We unblock so workflows can read GEMINI_API_KEY / GEMINI_MODEL from env.
       # In production you'd switch to n8n credentials instead.
