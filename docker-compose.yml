@@ -1,5 +1,3 @@
-version: "3.8"
-
 # =============================================================================
 # Niveshaay P&L Pipeline — Local Development Stack
 # =============================================================================
@@ -28,6 +26,10 @@ services:
       - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/}
       - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-Asia/Kolkata}
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-niveshaay-dev-encryption-key-change-in-prod}
+      # n8n blocks $env access in expressions by default for security.
+      # We unblock so workflows can read GEMINI_API_KEY / GEMINI_MODEL from env.
+      # In production you'd switch to n8n credentials instead.
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
       # Forward Gemini key to workflows via $env.GEMINI_API_KEY
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
@@ -46,8 +48,14 @@ services:
     image: redis:7-alpine
     container_name: niveshaay-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    # Note: Redis is reachable from n8n inside the Docker network at host "redis".
+    # We deliberately do NOT publish 6379 to the host — many devs already have
+    # a Redis listening there. Uncomment the `ports` block below if you need
+    # to inspect Redis from your laptop's terminal.
+    # ports:
+    #   - "6380:6379"
+    expose:
+      - "6379"
     volumes:
       - redis_data:/data
     command: ["redis-server", "--appendonly", "yes"]

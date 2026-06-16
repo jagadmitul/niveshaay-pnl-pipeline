@@ -3,18 +3,21 @@ interface Sample {
   url: string;
 }
 
+// Verified working BSE URLs (16 June 2026).
+// Add new ones by grabbing fresh links from
+// https://www.bseindia.com/corporates/Comp_Resultsnew.aspx
 const SAMPLES: Sample[] = [
   {
-    label: 'iValue Infosolutions — Q4 FY26 (extended schema example)',
-    url: 'https://www.bseindia.com/xml-data/corpfiling/AttachLive/76172a81-6dbe-4c3d-aa78-e8a5fee0df72.pdf',
+    label: 'Bharat Forge',
+    url: 'https://www.bseindia.com/xml-data/corpfiling/AttachHis/af9d0bd2-4d46-4d9a-bf64-73db891db83a.pdf',
   },
   {
-    label: 'Datamatics Global — quarterly result',
+    label: 'Relaxo Footwears',
+    url: 'https://www.bseindia.com/xml-data/corpfiling/AttachLive/db7bceb7-ab7c-4eaf-b679-60c0dbc7bd75.pdf',
+  },
+  {
+    label: 'Datamatics Global',
     url: 'https://www.bseindia.com/xml-data/corpfiling/AttachLive/d23685f3-a395-4ded-830e-fdbdbd769c45.pdf',
-  },
-  {
-    label: 'Jubilant FoodWorks — Q1 result',
-    url: 'https://www.bseindia.com/xml-data/corpfiling/AttachLive/0da7bdb4-7af1-41ef-8a20-bf97ab5dda68.pdf',
   },
 ];
 

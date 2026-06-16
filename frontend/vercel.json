@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/api/process-pdf",
+      "destination": "https://__SET_N8N_BASE_URL__/webhook/process-pdf"
+    }
+  ]
+}

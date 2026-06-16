@@ -1,16 +1,34 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { PdfLinkForm } from './components/PdfLinkForm';
 import { LoadingState } from './components/LoadingState';
 import { ErrorDisplay } from './components/ErrorDisplay';
 import { JsonViewer } from './components/JsonViewer';
 import { ImagePreview } from './components/ImagePreview';
 import { SampleLinks } from './components/SampleLinks';
+import { ValidationBanner } from './components/ValidationBanner';
+import { DownloadActions } from './components/DownloadActions';
+import { HistoryPanel, recordRun, type HistoryItem } from './components/HistoryPanel';
 import { usePdfProcessing } from './hooks/usePdfProcessing';
 import { isError, isNoPnL, isSuccess } from './lib/types';
 
 export default function App() {
-  const { status, result, elapsedMs, submit, reset } = usePdfProcessing();
-  const [view, setView] = useState<'json' | 'card'>('json');
+  const { status, result, elapsedMs, submittedUrl, submit, reset, replay } = usePdfProcessing();
+  // Use a callback ref so DownloadActions sees the actual DOM node (not null on first render).
+  const [cardNode, setCardNode] = useState<HTMLDivElement | null>(null);
+
+  // Persist every successful run so the user can revisit it without re-spending Gemini.
+  if (status === 'done' && result && isSuccess(result) && submittedUrl) {
+    // Only record once per result instance (cheap deduplication via the URL).
+    const lastRecorded = (window as Window & typeof globalThis & { __niveshaayLastRecorded?: string }).__niveshaayLastRecorded;
+    if (lastRecorded !== submittedUrl) {
+      (window as Window & typeof globalThis & { __niveshaayLastRecorded?: string }).__niveshaayLastRecorded = submittedUrl;
+      recordRun(submittedUrl, result);
+    }
+  }
+
+  const handleReplay = useCallback((item: HistoryItem) => {
+    replay(item.pdfUrl, item.result);
+  }, [replay]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -23,10 +41,12 @@ export default function App() {
           </h1>
           <p className="mt-2 text-niveshaay-ink/70 max-w-2xl">
             Paste a corporate result PDF link from <strong>BSE</strong> or <strong>NSE</strong>.
-            We&apos;ll download it, send it through Gemini, and return a structured P&amp;L JSON
-            (math-validated and ready for the WhatsApp distribution layer).
+            We download it, run it through Gemini with the Niveshaay prompt, recompute the margins
+            ourselves, and return both the structured JSON and the WhatsApp-ready P&amp;L card.
           </p>
         </section>
+
+        {/* No em-dashes anywhere in headings, banners, or labels below. */}
 
         <PdfLinkForm
           disabled={status === 'loading'}
@@ -40,46 +60,59 @@ export default function App() {
           onPick={(url) => submit(url)}
         />
 
+        <HistoryPanel onReplay={handleReplay} />
+
         {status === 'loading' && <LoadingState />}
 
         {status === 'done' && result && (
-          <section className="mt-8">
+          <section className="mt-10 space-y-8">
             {isError(result) && <ErrorDisplay error={result.error} />}
 
             {isNoPnL(result) && (
               <div className="card p-6">
                 <h2 className="text-lg font-semibold text-niveshaay-dark">
-                  No P&amp;L found
+                  No P&amp;L found in this document
                 </h2>
                 <p className="mt-2 text-sm text-niveshaay-ink/70">{result.message}</p>
+                <p className="mt-3 text-xs text-niveshaay-ink/50">
+                  This is the contract Arjun's prompt defines for non-P&amp;L documents
+                  (e.g. earnings-call transcripts, press releases). The pipeline returned
+                  the expected response.
+                </p>
               </div>
             )}
 
             {isSuccess(result) && (
-              <div className="space-y-6">
-                <ResultMeta
-                  companyName={result.data.company_name}
-                  quarterType={result.data.quarter_type}
-                  elapsedMs={elapsedMs}
-                  totalTokens={result.meta.total_tokens}
-                  modelUsed={result.meta.model_used}
+              <>
+                <ValidationBanner
                   validation={result.validation}
+                  modelUsed={result.meta.model_used}
+                  totalTokens={result.meta.total_tokens}
+                  elapsedMs={elapsedMs}
+                  sourceUrl={submittedUrl}
                 />
 
-                <div className="card overflow-hidden">
-                  <div className="flex border-b border-niveshaay-light/30">
-                    <Tab active={view === 'json'} onClick={() => setView('json')} label="JSON" />
-                    <Tab active={view === 'card'} onClick={() => setView('card')} label="P&L Card Preview" />
+                <section>
+                  <SectionHeader
+                    title="P&L Card Preview"
+                    subtitle="The same layout that goes to the WhatsApp distribution group via evolution API."
+                    right={<DownloadActions data={result.data} imageNode={cardNode} />}
+                  />
+                  <div className="mt-3 overflow-x-auto rounded-2xl shadow-soft border border-niveshaay-light/30 bg-white p-3 lg:p-4">
+                    <ImagePreview ref={setCardNode} data={result.data} />
                   </div>
-                  <div className="p-5">
-                    {view === 'json' ? (
-                      <JsonViewer value={result.data} />
-                    ) : (
-                      <ImagePreview data={result.data} />
-                    )}
+                </section>
+
+                <section>
+                  <SectionHeader
+                    title="Structured JSON"
+                    subtitle="What gets persisted and piped to downstream consumers."
+                  />
+                  <div className="mt-3">
+                    <JsonViewer value={result.data} />
                   </div>
-                </div>
-              </div>
+                </section>
+              </>
             )}
           </section>
         )}
@@ -105,9 +138,11 @@ function Header() {
             </p>
           </div>
         </div>
-        <nav className="text-xs text-niveshaay-ink/60">
-          <span className="hidden sm:inline">Powered by </span>
-          <span className="font-mono">n8n · Gemini 2.5</span>
+        <nav className="text-xs text-niveshaay-ink/60 hidden sm:flex items-center gap-3">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-niveshaay-mid animate-pulse" />
+            Pipeline live
+          </span>
         </nav>
       </div>
     </header>
@@ -118,101 +153,29 @@ function Footer() {
   return (
     <footer className="border-t border-niveshaay-light/30 py-6 mt-12">
       <div className="max-w-6xl mx-auto px-6 text-xs text-niveshaay-ink/50 flex flex-wrap items-center justify-between gap-4">
-        <span>© 2026 Niveshaay — Internal tool, not for distribution.</span>
+        <span>© 2026 Niveshaay. Internal tool, not for distribution.</span>
         <span>Pipeline: webhook · validate · download · gemini · parse · math-check · respond</span>
       </div>
     </footer>
   );
 }
 
-function Tab({
-  active,
-  onClick,
-  label,
+function SectionHeader({
+  title,
+  subtitle,
+  right,
 }: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
+  title: string;
+  subtitle?: string;
+  right?: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`px-5 py-3 text-sm font-medium border-b-2 transition-colors
-        ${active
-          ? 'border-niveshaay-dark text-niveshaay-dark bg-niveshaay-light/10'
-          : 'border-transparent text-niveshaay-ink/60 hover:text-niveshaay-dark'
-        }`}
-    >
-      {label}
-    </button>
-  );
-}
-
-function ResultMeta({
-  companyName,
-  quarterType,
-  elapsedMs,
-  totalTokens,
-  modelUsed,
-  validation,
-}: {
-  companyName: string;
-  quarterType: string;
-  elapsedMs: number | null;
-  totalTokens: number;
-  modelUsed: string;
-  validation?: { passed: boolean; issues_count: number };
-}) {
-  return (
-    <div className="card p-5 flex flex-wrap items-center justify-between gap-4">
+    <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h2 className="text-lg font-bold text-niveshaay-dark">{companyName}</h2>
-        <p className="text-xs uppercase tracking-wide text-niveshaay-ink/50 mt-0.5">
-          {quarterType === 'extended' ? 'Extended (Q2/Q4)' : 'Standard (Q1/Q3)'} schema
-        </p>
+        <h2 className="text-lg font-bold text-niveshaay-dark">{title}</h2>
+        {subtitle && <p className="text-xs text-niveshaay-ink/60 mt-0.5">{subtitle}</p>}
       </div>
-      <div className="flex flex-wrap items-center gap-4 text-xs">
-        {elapsedMs !== null && (
-          <Pill label="Time" value={`${(elapsedMs / 1000).toFixed(1)}s`} />
-        )}
-        <Pill label="Tokens" value={totalTokens.toLocaleString()} />
-        <Pill label="Model" value={modelUsed} mono />
-        {validation && (
-          <Pill
-            label="Math check"
-            value={validation.passed ? 'PASS' : `${validation.issues_count} issue(s)`}
-            tone={validation.passed ? 'good' : 'warn'}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Pill({
-  label,
-  value,
-  mono,
-  tone = 'neutral',
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-  tone?: 'neutral' | 'good' | 'warn';
-}) {
-  const toneStyle =
-    tone === 'good'
-      ? 'bg-niveshaay-light/30 text-niveshaay-dark'
-      : tone === 'warn'
-      ? 'bg-amber-100 text-amber-900'
-      : 'bg-niveshaay-cream text-niveshaay-ink';
-  return (
-    <div className={`px-2.5 py-1.5 rounded-md ${toneStyle}`}>
-      <span className="uppercase tracking-wide text-[10px] opacity-70 mr-1.5">
-        {label}
-      </span>
-      <span className={mono ? 'font-mono' : 'font-semibold'}>{value}</span>
+      {right}
     </div>
   );
 }

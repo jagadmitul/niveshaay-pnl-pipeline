@@ -1,3 +1,4 @@
+import { forwardRef } from 'react';
 import type { PnLData, PnLRow } from '../lib/types';
 
 interface Props {
@@ -5,113 +6,140 @@ interface Props {
 }
 
 /**
- * Render the P&L JSON as the Niveshaay-branded card.
- *
- * This mirrors the WhatsApp distribution format (see samples/sample-output-reference.jpeg).
- * The JSON only carries the bare 4 or 6 columns; we compute the "Change (in %)"
- * columns in the renderer so the table matches the production card 1:1.
+ * Niveshaay-branded P&L card. Layout mirrors Arjun's WhatsApp reference:
+ *  - White title bar with company name centred + the Niveshaay logo top-right
+ *  - Dark-green column header row
+ *  - Highlighted margin rows + bold totals
+ *  - Auto-calculated Change (in %) columns between data columns
  */
-export function ImagePreview({ data }: Props) {
+export const ImagePreview = forwardRef<HTMLDivElement, Props>(({ data }, ref) => {
   const rows = collectRows(data);
   if (rows.length === 0) return null;
 
   const header = rows[0];
   const body = rows.slice(1);
   const isExtended = data.quarter_type === 'extended';
-
-  // Decide which (recent, previous) pairs to compute % change for.
-  // Standard: col1 vs col2 (QoQ), col1 vs col3 (YoY) -> 2 change cols (after col2 and col3)
-  // Extended Q4: col1 vs col2 (QoQ), col1 vs col3 (YoY), col4 vs col5 (FY) -> 3 change cols
-  // Extended Q2: same (col1 vs col2, col1 vs col3, col4 vs col5)
-  // We insert Change cols AFTER cols 2 and 3, and AFTER col 5 (extended only).
   const changeColPositions = isExtended ? [2, 3, 5] : [2, 3];
 
   return (
-    <div className="space-y-3">
-      <p className="text-xs text-niveshaay-ink/60">
-        Preview of the formatted P&amp;L card. In production this is rendered via{' '}
-        Puppeteer/Browserless and pushed to WhatsApp through evolution API.
-      </p>
+    <div ref={ref} className="bg-white">
+      <div className="border border-niveshaay-light/40 rounded-lg overflow-hidden shadow-soft">
+        {/* Title bar: white background so the logo (dark text on transparent) shows clean */}
+        <div className="relative bg-white px-4 py-3 border-b-2 border-niveshaay-mid flex items-center justify-between gap-4">
+          <div className="w-16 flex-shrink-0" />
+          <h2 className="flex-1 text-center text-base font-bold tracking-wide text-niveshaay-dark">
+            {data.company_name}
+          </h2>
+          <div className="w-16 flex-shrink-0 flex items-center justify-end">
+            <img
+              src="/niveshaay-logo.png"
+              alt="Niveshaay"
+              className="h-9 w-auto"
+              crossOrigin="anonymous"
+            />
+          </div>
+        </div>
 
-      <div className="overflow-x-auto rounded-lg border border-niveshaay-light/30 bg-white">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="bg-niveshaay-dark text-white">
-              <th colSpan={header.length + changeColPositions.length} className="px-3 py-2.5 text-center font-semibold relative">
-                <span className="block">{data.company_name}</span>
-                <img
-                  src="/niveshaay-logo.png"
-                  alt=""
-                  className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-auto opacity-90"
-                />
-              </th>
-            </tr>
-            <tr className="bg-niveshaay-mid text-white">
-              <th className="px-3 py-2 text-left font-semibold whitespace-nowrap">
-                <span className="text-[10px] uppercase tracking-wide opacity-80">Rs in Cr</span>
-                <br />
-                <span>{header[0]}</span>
-              </th>
-              {header.slice(1).map((label, i) => {
-                const dataColIdx = i + 1; // 1-based after particulars
-                const cells: JSX.Element[] = [
-                  <th key={`h-${i}`} className="px-3 py-2 text-right font-semibold whitespace-nowrap">
-                    {label}
-                  </th>,
-                ];
-                if (changeColPositions.includes(dataColIdx)) {
-                  cells.push(
-                    <th key={`hc-${i}`} className="px-3 py-2 text-right font-semibold whitespace-nowrap">
-                      Change (in %)
+        <div className="overflow-x-auto">
+          <table className="w-full text-[11px]" cellPadding={0} cellSpacing={0}>
+            <thead>
+              <tr className="bg-niveshaay-mid text-white">
+                <th
+                  className="px-3 py-2 text-left font-semibold whitespace-nowrap align-bottom"
+                  style={{ minWidth: 240 }}
+                >
+                  <div className="text-[9px] uppercase tracking-wide opacity-80">
+                    Rs in Cr
+                  </div>
+                  <div>{header[0]}</div>
+                </th>
+                {header.slice(1).map((label, i) => {
+                  const dataColIdx = i + 1;
+                  const cells = [
+                    <th
+                      key={`h-${i}`}
+                      className="px-3 py-2 text-right font-semibold whitespace-nowrap align-bottom"
+                    >
+                      {label}
                     </th>,
-                  );
-                }
-                return cells;
-              })}
-            </tr>
-          </thead>
-          <tbody>
-            {body.map((row, idx) => {
-              const isHeading = isSectionHeading(row);
-              const isMargin = isMarginRow(row[0]);
-              const rowCls = `${isHeading ? 'bg-niveshaay-cream font-bold text-niveshaay-dark' : ''} ${
-                isMargin ? 'bg-niveshaay-light/20 font-semibold' : ''
-              }`;
-              return (
-                <tr key={idx} className={`border-t border-niveshaay-light/20 ${rowCls}`}>
-                  <td className="px-3 py-1.5 whitespace-nowrap text-niveshaay-ink">{row[0]}</td>
-                  {row.slice(1).map((cell, i) => {
-                    const dataColIdx = i + 1;
-                    const cells: JSX.Element[] = [
-                      <td key={`d-${i}`} className="px-3 py-1.5 text-right font-mono tabular-nums whitespace-nowrap">
-                        {formatCell(cell)}
-                      </td>,
-                    ];
-                    if (changeColPositions.includes(dataColIdx)) {
-                      // Compute change vs col1 for QoQ/YoY, col4 vs col5 for FY.
-                      const current = dataColIdx === 5 ? row[4] : row[1];
-                      const prior = row[dataColIdx];
-                      const change = pctChange(current, prior);
-                      cells.push(
+                  ];
+                  if (changeColPositions.includes(dataColIdx)) {
+                    cells.push(
+                      <th
+                        key={`hc-${i}`}
+                        className="px-3 py-2 text-right font-semibold whitespace-nowrap align-bottom"
+                        style={{ background: '#186f3f' }}
+                      >
+                        Change (in %)
+                      </th>,
+                    );
+                  }
+                  return cells;
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {body.map((row, idx) => {
+                const isHeading = isSectionHeading(row);
+                const isMargin = isMarginRow(row[0]);
+                const isBold = isBoldRow(row[0]);
+
+                let rowCls = '';
+                if (isMargin) rowCls = 'bg-niveshaay-light/25 font-semibold';
+                else if (isBold) rowCls = 'bg-niveshaay-cream font-bold text-niveshaay-dark';
+                else if (isHeading) rowCls = 'bg-niveshaay-cream font-bold text-niveshaay-dark';
+
+                return (
+                  <tr key={idx} className={`border-t border-niveshaay-light/15 ${rowCls}`}>
+                    <td className="px-3 py-1.5 whitespace-nowrap">{row[0]}</td>
+                    {row.slice(1).map((cell, i) => {
+                      const dataColIdx = i + 1;
+                      const cells = [
                         <td
-                          key={`dc-${i}`}
-                          className="px-3 py-1.5 text-right font-mono tabular-nums whitespace-nowrap text-niveshaay-ink/80"
+                          key={`d-${i}`}
+                          className="px-3 py-1.5 text-right font-mono tabular-nums whitespace-nowrap"
                         >
-                          {change}
+                          {formatCell(cell)}
                         </td>,
-                      );
-                    }
-                    return cells;
-                  })}
-                </tr>
-              );
+                      ];
+                      if (changeColPositions.includes(dataColIdx)) {
+                        const currentStr = dataColIdx === 5 ? row[4] : row[1];
+                        const priorStr = row[dataColIdx];
+                        const change = pctChange(currentStr, priorStr);
+                        cells.push(
+                          <td
+                            key={`dc-${i}`}
+                            className="px-3 py-1.5 text-right font-mono tabular-nums whitespace-nowrap text-niveshaay-ink/75"
+                          >
+                            {change}
+                          </td>,
+                        );
+                      }
+                      return cells;
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="border-t border-niveshaay-light/25 bg-niveshaay-cream/70 px-3 py-1.5 text-[10px] text-niveshaay-ink/60 flex items-center justify-between">
+          <span>Powered by Niveshaay · Auto-extracted from BSE/NSE filing</span>
+          <span>
+            {new Date().toLocaleDateString('en-IN', {
+              day: '2-digit',
+              month: 'short',
+              year: 'numeric',
             })}
-          </tbody>
-        </table>
+          </span>
+        </div>
       </div>
     </div>
   );
-}
+});
+
+ImagePreview.displayName = 'ImagePreview';
 
 function collectRows(data: PnLData): PnLRow[] {
   return Object.entries(data)
@@ -121,15 +149,28 @@ function collectRows(data: PnLData): PnLRow[] {
 }
 
 function isSectionHeading(row: PnLRow): boolean {
-  // A row that's just "Expenses" with no numbers is a heading.
   const label = String(row[0] || '').trim().toLowerCase();
   const allEmpty = row.slice(1).every((c) => !String(c || '').trim());
   return allEmpty && label === 'expenses';
 }
 
 function isMarginRow(label: string): boolean {
+  return String(label || '').toLowerCase().includes('margin');
+}
+
+function isBoldRow(label: string): boolean {
+  const boldLabels = [
+    'gross profit',
+    'total expenses',
+    'ebitda',
+    'profit before exceptional',
+    'profit before tax',
+    'profit/loss before tax',
+    'pat',
+  ];
   const l = String(label || '').toLowerCase();
-  return l.includes('margin');
+  if (l.includes('margin')) return false;
+  return boldLabels.some((b) => l === b || l.startsWith(b));
 }
 
 function formatCell(s: string): string {

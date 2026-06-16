@@ -1,9 +1,0 @@
-Tata Consultancy Services Limited — Q1 FY26 Consolidated P&L
-Source: BSE / NSE Corporate Filing
-URL pattern: https://www.bseindia.com/xml-data/corpfiling/AttachLive/<UUID>.pdf
-
-Quarter type: standard (Q1 — 3 data columns)
-Columns: Q1 FY26 | Q4 FY25 | Q1 FY25
-
-For a TCS-style services company there is no "Gross Profit" line in the
-filing, so the prompt's optional row is intelligently skipped.

@@ -326,14 +326,28 @@ POST http://localhost:5678/webhook/process-pdf
 
 ## Run-time and cost expectations
 
-| Path | Latency | Gemini cost |
-|---|---|---|
-| Fresh PDF, default model | 8–18 s | $0.10–0.30 |
-| Cached (when enabled) | < 100 ms | $0 |
-| Failed validation (no Gemini call) | < 200 ms | $0 |
+| Path | Model | Latency | Gemini cost |
+|---|---|---|---|
+| Fresh PDF | `gemini-2.5-flash` | 8–18 s | ≈ $0.10 |
+| Fresh PDF | `gemini-2.5-pro` | 15–30 s | ≈ $0.30 |
+| Cached (when enabled) | — | < 100 ms | $0 |
+| Failed validation (no Gemini call) | — | < 200 ms | $0 |
 
-With caching enabled, the $10 budget covers ~50 unique filings comfortably
-and several hundred re-runs during testing.
+With caching enabled, the $10 budget comfortably covers ~30 unique filings on
+Pro and a couple hundred re-runs during testing.
+
+## Model choice
+
+The pipeline reads the model name from `$env.GEMINI_MODEL`. Default in
+`.env.example` is **`gemini-2.5-pro`** because some BSE filings include both a
+standalone and a consolidated statement in the same PDF, and Pro follows the
+prompt's "prefer consolidated" directive more reliably than Flash. Swap to
+Flash for cheaper batch processing when you know the filings only contain
+consolidated.
+
+> The prompt itself is used verbatim per task Section 3. Section selection is
+> the model's call — Pro picks consolidated more reliably than Flash, but no
+> prompt change.
 
 ---
 

@@ -1,8 +1,0 @@
-Asian Paints Limited — Q2 FY26 Consolidated P&L
-Source: BSE / NSE Corporate Filing
-URL pattern: https://www.bseindia.com/xml-data/corpfiling/AttachLive/<UUID>.pdf
-
-Quarter type: extended (Q2 — 5 data columns)
-Columns: Q2 FY26 | Q1 FY26 | Q2 FY25 | H1 FY26 | H1 FY25
-
-A manufacturing company with inventory, COGS, and full H1 comparatives.
