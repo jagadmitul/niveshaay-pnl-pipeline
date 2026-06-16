@@ -6,7 +6,7 @@
   "rewrites": [
     {
       "source": "/api/process-pdf",
-      "destination": "https://__SET_N8N_BASE_URL__/webhook/process-pdf"
+      "destination": "https://niveshaay-n8n-production.up.railway.app/webhook/process-pdf"
     }
   ]
 }

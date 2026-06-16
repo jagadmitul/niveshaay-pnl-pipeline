@@ -10,7 +10,10 @@
 
   <br/>
 
-  <sub>n8n · Gemini 2.5 Flash · React + Vite + Tailwind · Redis-backed cache stub</sub>
+  **🔗 Live demo:** [niveshaay-pnl-pipeline.vercel.app](https://niveshaay-pnl-pipeline.vercel.app)
+  **🔌 Live webhook:** `POST https://niveshaay-pnl-pipeline.vercel.app/api/process-pdf`
+
+  <sub>n8n · Gemini 2.5 Pro · React + Vite + Tailwind · Vercel + Railway · Redis cache stub</sub>
 </div>
 
 ---
@@ -62,7 +65,25 @@ Full diagram, failure-isolation table, and the "why" behind each node:
 
 ---
 
-## Quick start (3 commands)
+## Try it (no install)
+
+Open the live URL and paste any BSE/NSE corporate-result PDF link:
+
+> **[niveshaay-pnl-pipeline.vercel.app](https://niveshaay-pnl-pipeline.vercel.app)**
+
+Or hit the webhook directly:
+
+```bash
+curl -X POST https://niveshaay-pnl-pipeline.vercel.app/api/process-pdf \
+  -H 'Content-Type: application/json' \
+  -d '{"pdf_url":"https://www.bseindia.com/xml-data/corpfiling/AttachHis/af9d0bd2-4d46-4d9a-bf64-73db891db83a.pdf"}'
+```
+
+Sample response: [`samples/bharat-forge-q4-fy26-output.json`](samples/bharat-forge-q4-fy26-output.json).
+
+---
+
+## Quick start (local, 3 commands)
 
 ```bash
 # 1. Configure Gemini key
@@ -348,6 +369,24 @@ consolidated.
 > The prompt itself is used verbatim per task Section 3. Section selection is
 > the model's call — Pro picks consolidated more reliably than Flash, but no
 > prompt change.
+
+---
+
+## Live deployment topology
+
+| Layer | Hosted on | URL |
+|---|---|---|
+| Frontend (React + Vite) | Vercel | https://niveshaay-pnl-pipeline.vercel.app |
+| n8n workflow runtime | Railway (Docker, persistent volume) | https://niveshaay-n8n-production.up.railway.app |
+| Webhook (proxied, same-origin) | Vercel rewrite → Railway | `POST /api/process-pdf` |
+
+`frontend/vercel.json` rewrites `/api/process-pdf` to the Railway webhook so the
+browser sees a same-origin request (sidesteps a known n8n CORS edge case where
+production webhooks return an empty body to cross-origin POSTs).
+
+The Railway image (`n8n-deploy/Dockerfile` + `entrypoint.sh`) auto-imports and
+activates the bundled workflow on first boot, so a fresh container is webhook-
+ready without manual UI setup.
 
 ---
 

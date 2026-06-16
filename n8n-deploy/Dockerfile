@@ -1,6 +1,12 @@
-FROM docker.n8n.io/n8nio/n8n:2.26.4
+FROM n8nio/n8n:latest
 
 USER root
+
 COPY niveshaay-pnl-pipeline.json /home/node/workflow.json
-RUN chown node:node /home/node/workflow.json
-USER node
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Run as root throughout — keeps things simple across n8n image versions
+# and works with Railway's root-owned volume mount.
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["n8n", "start"]
