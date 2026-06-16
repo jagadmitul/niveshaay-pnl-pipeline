@@ -1,0 +1,57 @@
+version: "3.8"
+
+# =============================================================================
+# Niveshaay P&L Pipeline — Local Development Stack
+# =============================================================================
+# Brings up n8n + Redis (cache) on localhost for one-command setup.
+# Usage:
+#   1. Copy .env.example -> .env, fill GEMINI_API_KEY
+#   2. docker compose up -d
+#   3. Open http://localhost:5678 — first-run sets up admin account
+#   4. Import workflow/niveshaay-pnl-pipeline.json from the n8n UI
+#   5. Set GEMINI_API_KEY in n8n Credentials (Settings -> Credentials)
+#   6. Activate the workflow — webhook listens on /webhook/process-pdf
+# =============================================================================
+
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: niveshaay-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=${N8N_PORT:-5678}
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+      - NODE_ENV=production
+      - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/}
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-Asia/Kolkata}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-niveshaay-dev-encryption-key-change-in-prod}
+      # Forward Gemini key to workflows via $env.GEMINI_API_KEY
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+      # Cache via Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      # Allow large PDFs (default is 16 MB)
+      - N8N_PAYLOAD_SIZE_MAX=32
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflow:/workflows:ro
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    container_name: niveshaay-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+
+volumes:
+  n8n_data:
+  redis_data:

@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-niveshaay-cream text-niveshaay-ink font-sans antialiased;
+    background-image:
+      radial-gradient(circle at 8% 8%, rgba(155, 217, 156, 0.18), transparent 35%),
+      radial-gradient(circle at 92% 92%, rgba(31, 122, 71, 0.10), transparent 40%);
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    @apply bg-niveshaay-light/40 text-niveshaay-dark;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-niveshaay-paper rounded-2xl shadow-soft border border-niveshaay-light/30;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-5 py-2.5 rounded-lg
+           bg-niveshaay-dark text-white font-semibold text-sm
+           hover:bg-niveshaay-mid transition-colors
+           disabled:opacity-50 disabled:cursor-not-allowed
+           focus:outline-none focus:ring-2 focus:ring-niveshaay-mid focus:ring-offset-2;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center px-3 py-1.5 rounded-md
+           text-xs font-medium text-niveshaay-dark
+           bg-niveshaay-light/15 hover:bg-niveshaay-light/30
+           transition-colors;
+  }
+
+  .input-link {
+    @apply w-full px-4 py-3 rounded-lg border border-niveshaay-light/40
+           bg-white text-niveshaay-ink text-sm
+           placeholder:text-niveshaay-ink/40
+           focus:outline-none focus:border-niveshaay-mid focus:ring-2 focus:ring-niveshaay-mid/20;
+  }
+}
+
+/* JSON viewer minimal syntax styling */
+.json-viewer {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+.json-key   { color: #0f4f2f; font-weight: 600; }
+.json-str   { color: #1f7a47; }
+.json-num   { color: #a3503c; }
+.json-bool  { color: #6b4ea0; font-weight: 600; }
+.json-null  { color: #767676; font-style: italic; }

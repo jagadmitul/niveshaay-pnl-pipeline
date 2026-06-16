@@ -1,0 +1,343 @@
+{
+  "name": "Niveshaay - P&L Processing Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "process-pdf",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false,
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "01-webhook",
+      "name": "Webhook (POST /process-pdf)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        100,
+        320
+      ],
+      "webhookId": "niveshaay-process-pdf"
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================================================================\n// Validate the incoming PDF URL.\n// Niveshaay receives links from NSE and BSE only. We harden against arbitrary\n// URLs (SSRF, phishing PDFs, non-PDF payloads) by checking host + extension.\n// =============================================================================\n\nconst body = $input.first().json.body || $input.first().json;\nconst pdf_url = (body?.pdf_url || '').trim();\n\nif (!pdf_url) {\n  throw new Error(\"Missing required field 'pdf_url' in request body.\");\n}\n\nlet parsed;\ntry {\n  parsed = new URL(pdf_url);\n} catch (e) {\n  throw new Error(`Invalid URL format: ${pdf_url}`);\n}\n\nif (!['http:', 'https:'].includes(parsed.protocol)) {\n  throw new Error(`Unsupported protocol: ${parsed.protocol}. Use http or https.`);\n}\n\nconst allowedHosts = [\n  'bseindia.com',\n  'www.bseindia.com',\n  'nseindia.com',\n  'www.nseindia.com',\n  'archives.nseindia.com',\n  'nsearchives.nseindia.com'\n];\n\nconst hostnameAllowed = allowedHosts.some(h => parsed.hostname === h || parsed.hostname.endsWith('.' + h));\nif (!hostnameAllowed) {\n  throw new Error(`URL must be from BSE or NSE. Got host: ${parsed.hostname}`);\n}\n\nif (!parsed.pathname.toLowerCase().endsWith('.pdf')) {\n  throw new Error('URL must point to a .pdf file');\n}\n\nreturn [{\n  json: {\n    pdf_url,\n    host: parsed.hostname,\n    received_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "id": "02-validate-url",
+      "name": "Validate URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.pdf_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Niveshaay-Pipeline/1.0)"
+            },
+            {
+              "name": "Accept",
+              "value": "application/pdf,*/*;q=0.8"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 30000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 5
+            }
+          }
+        }
+      },
+      "id": "03-download-pdf",
+      "name": "Download PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        500,
+        320
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================================================================\n// Prepare the Gemini request body.\n// We send the PDF inline as base64 (Gemini natively accepts application/pdf).\n//\n// The full system prompt lives below so the workflow is self-contained.\n// Update Section 3 of the assignment, mirror it here, and the prompt stays\n// version-controlled with the workflow.\n// =============================================================================\n\nconst item = $input.first();\nconst binaryData = item.binary?.data;\nif (!binaryData) {\n  throw new Error('PDF download returned no binary data.');\n}\n\nconst pdf_base64 = binaryData.data;\nconst pdf_bytes = Buffer.from(pdf_base64, 'base64').length;\nconst size_mb = pdf_bytes / 1024 / 1024;\n\nif (size_mb > 20) {\n  throw new Error(`PDF too large (${size_mb.toFixed(2)} MB). Limit is 20 MB.`);\n}\n\nconst prompt = `You are a financial data processor that converts quarterly P&L statements into standardized JSON format. You are only to look at the consolidated financial results.\n\nThe table can be under any form including but not limited 'FINANCIAL RESULTS FOR THE QUARTER / YEAR ENDED', 'STATEMENT OF AUDITED/UNADUITED CONSOLIDATED FINANCIAL RESULTS FOR THE HALF YEAR ENDED AND YEAR ENDED MARCH', 'CONSOLIDATED FINANCIAL RESULTS FOR THE QUARTER', 'Profit and Loss statement', 'PnL', 'Statement of Audited Financial Results for the Half Year & Year ended' and so on.\n\nCritical: Look and process the standalone statement only and only if consolidated statement is not present.\n\nImportant: If you don't find the profit and loss statement in the document just output no pnl found and nothing else.\n\n## 1. DATA EXTRACTION RULES\nCompany Name Extraction\n1. **Identify:** Look for legal entity markers (\"Limited\", \"Ltd\", \"Pvt\", \"Inc\").\n2. **Formatting:**\n* Use Title Case for names (e.g., \"Tata Motors\").\n* Keep acronyms ALL CAPS (e.g., \"ITC Limited\", \"H.G. Infra\").\n* If no name is found, output: \"Unknown Company\"\n\n## OUTPUT FORMAT (STRICT)\nReturn ONLY valid JSON with no explanations.\n\n### CRITICAL: Column count depends on the quarter type:\n\n**For Q1 and Q3** - output 4 columns per row (Particulars + 3 data columns):\n{\n  \"company_name\": \"Tata Motors\",\n  \"quarter_type\": \"standard\",\n  \"row1\": [\"Particulars\", \"Q1 FY26\", \"Q4 FY25\", \"Q1 FY25\"],\n  \"row2\": [\"Revenue\", \"3611.02\", \"3347.70\", \"4132.67\"],\n  ...\n}\n\n**For Q2** - output 6 columns per row (Particulars + 5 data columns, adding H1 of current and previous year):\n{\n  \"company_name\": \"Tata Motors\",\n  \"quarter_type\": \"extended\",\n  \"row1\": [\"Particulars\", \"Q2 FY26\", \"Q1 FY26\", \"Q2 FY25\", \"H1 FY26\", \"H1 FY25\"],\n  \"row2\": [\"Revenue\", \"450.50\", \"425.30\", \"380.20\", \"875.80\", \"740.50\"],\n  ...\n}\n\n**For Q4** - output 6 columns per row (Particulars + 5 data columns, adding full year current and previous year):\n{\n  \"company_name\": \"Tata Motors\",\n  \"quarter_type\": \"extended\",\n  \"row1\": [\"Particulars\", \"Q4 FY26\", \"Q3 FY26\", \"Q4 FY25\", \"FY26\", \"FY25\"],\n  \"row2\": [\"Revenue\", \"450.50\", \"425.30\", \"380.20\", \"1800.00\", \"1650.00\"],\n  ...\n}\n\n## TABLE STRUCTURE\n\n### Column Headers\n- Column 1: \"Particulars\"\n- Column 2: Most recent quarter\n- Column 3: Previous consecutive quarter\n- Column 4: Same quarter from previous year\n- Column 5 (Q2/Q4 only): H1 current year (Q2) OR Full Year current (Q4)\n- Column 6 (Q2/Q4 only): H1 previous year (Q2) OR Full Year previous (Q4)\n\n### Quarter Naming Convention\n- 30-Jun-25 -> Q1 FY26\n- 30-Sep-25 -> Q2 FY26\n- 31-Dec-25 -> Q3 FY26\n- 31-Mar-26 -> Q4 FY26\n\n### Row Order (Standard P&L)\n1. Revenue\n2. Expenses (leave values blank - heading only)\n3. [Expense line items - varies by company]\n4. Gross Profit*\n5. Gross Profit Margin*\n6. Employee Benefit Expense\n7. [Other operating expenses - varies]\n8. Other expenses\n9. Total Expenses*\n10. EBITDA*\n11. EBITDA Margin*\n12. Depreciation\n13. Finance Cost\n14. Profit before Exceptional Items, Other Income*\n15. Other Income\n16. [Exceptional items - if present]\n17. [Share of profit/loss in JV/Associate - if present]\n18. Profit/Loss Before Tax*\n19. Tax Expenses\n20. PAT*\n21. PAT Margin*\n22. EPS (Basic)\n\n*Calculated if missing\n\nYou are required to look at the given data and intelligently add or remove fields.\n\nNote:\n1. Service charges/Service Cost are not included in the gross profit calculation.\n2. Revenue is revenue from operations and not total revenue.\n3. If excise duty is present then there will be a net revenue = revenue - excise duty.\n4. Make sure that the values you pick and output are of the correct quarters.\n\n## CALCULATION FORMULAS\n**Gross Profit** = Revenue - COGS-type expenses\n**Gross Profit Margin** = (Gross Profit / Revenue) x 100\n**Total Expenses** = Sum of all expense line items (excluding Depreciation and Finance Cost)\n**EBITDA** = Revenue - Total Operating Expenses (excluding Depreciation, Finance Cost and other income)\n**EBITDA Margin** = (EBITDA / Revenue) x 100\n**Profit before Exceptional Items, Other Income** = EBITDA - Depreciation - Finance Cost\n**Profit Before Tax** = EBITDA - Depreciation - Finance Cost + Other Income +/- Exceptional items +/- Share of profit/loss in JV\n**PAT** = Profit Before Tax - Tax Expenses\n**PAT Margin** = (PAT / Revenue) x 100\n**EPS (Basic)** = Use provided value only; do not calculate\n\nFor Q2 and Q4, apply the same calculation formulas to the H1/FY columns.\n\n## DATA PROCESSING RULES\n- Convert ALL values to Rs Crores\n- Round to 2 decimal places\n- Treat \"-\" or null as 0 (except for EPS)\n- Add \"%\" suffix to all margin calculations\n- All numeric values must be strings in JSON\n- Verify all calculations before final output`;\n\nconst geminiBody = {\n  contents: [{\n    parts: [\n      { text: prompt },\n      {\n        inline_data: {\n          mime_type: 'application/pdf',\n          data: pdf_base64\n        }\n      }\n    ]\n  }],\n  generationConfig: {\n    temperature: 0.1,\n    responseMimeType: 'application/json',\n    maxOutputTokens: 8192\n  }\n};\n\nreturn [{\n  json: {\n    gemini_body: geminiBody,\n    size_mb: size_mb.toFixed(2),\n    prompt_length: prompt.length\n  }\n}];\n"
+      },
+      "id": "04-build-prompt",
+      "name": "Build Gemini Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{ $env.GEMINI_MODEL || 'gemini-2.5-flash' }}:generateContent?key={{ $env.GEMINI_API_KEY }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.gemini_body) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "05-call-gemini",
+      "name": "Call Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        320
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================================================================\n// Parse Gemini's response.\n// The Gemini API wraps the model output in candidates[0].content.parts[0].text.\n// Because we set responseMimeType=application/json, the text is already a\n// JSON string. We parse + handle the 'no pnl found' edge case.\n// =============================================================================\n\nconst response = $input.first().json;\n\nif (response.error) {\n  throw new Error(`Gemini API error: ${response.error.message || JSON.stringify(response.error)}`);\n}\n\nconst candidates = response.candidates;\nif (!candidates || candidates.length === 0) {\n  throw new Error('Gemini returned no candidates. Possible safety block or empty response.');\n}\n\nconst candidate = candidates[0];\nconst rawText = candidate?.content?.parts?.[0]?.text?.trim();\n\nif (!rawText) {\n  throw new Error('Gemini response missing content.parts[0].text');\n}\n\n// Handle the explicit 'no pnl found' contract from the prompt.\nif (/^no\\s+pnl\\s+found/i.test(rawText)) {\n  return [{\n    json: {\n      success: false,\n      reason: 'no_pnl_found',\n      message: 'The document does not contain a recognizable Profit & Loss statement.'\n    }\n  }];\n}\n\n// Strip code fences if model returned ```json ... ```\nconst cleaned = rawText\n  .replace(/^```(?:json)?\\s*/i, '')\n  .replace(/\\s*```\\s*$/i, '')\n  .trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  throw new Error(`Failed to parse Gemini JSON. Raw output: ${cleaned.slice(0, 500)}...`);\n}\n\n// Basic schema sanity\nif (!parsed.company_name || !parsed.quarter_type || !parsed.row1) {\n  throw new Error('Gemini JSON missing required fields (company_name / quarter_type / row1)');\n}\n\nconst expectedCols = parsed.quarter_type === 'extended' ? 6 : 4;\nif (parsed.row1.length !== expectedCols) {\n  throw new Error(`Row column count mismatch. Expected ${expectedCols} for ${parsed.quarter_type}, got ${parsed.row1.length}.`);\n}\n\n// Token usage (cost-tracking signal — surfaced to the client)\nconst usage = response.usageMetadata || {};\n\nreturn [{\n  json: {\n    success: true,\n    data: parsed,\n    meta: {\n      model_used: response.modelVersion || 'gemini-2.5-flash',\n      prompt_tokens: usage.promptTokenCount || 0,\n      completion_tokens: usage.candidatesTokenCount || 0,\n      total_tokens: usage.totalTokenCount || 0,\n      finish_reason: candidate.finishReason || 'unknown'\n    }\n  }\n}];\n"
+      },
+      "id": "06-parse-response",
+      "name": "Parse Gemini Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================================================================\n// Math validation layer.\n// Recomputes margins/EBITDA/PAT-style metrics from raw rows and flags any\n// discrepancies > 1 paisa. Niveshaay's analysts can't trust a JSON they don't\n// re-prove, so we expose 'validation' metadata for every response.\n// =============================================================================\n\nconst input = $input.first().json;\n\nif (!input.success) {\n  // Pass through non-success states (e.g., 'no_pnl_found') without validation.\n  return [{ json: input }];\n}\n\nconst data = input.data;\nconst rows = Object.entries(data)\n  .filter(([k]) => /^row\\d+$/.test(k))\n  .sort(([a], [b]) => parseInt(a.replace('row', '')) - parseInt(b.replace('row', '')))\n  .map(([, v]) => v);\n\nconst header = rows[0];\nconst dataCols = header.length - 1;\nconst issues = [];\n\nconst num = (s) => {\n  if (s === '' || s === undefined || s === null) return null;\n  const cleaned = String(s).replace(/%/g, '').replace(/,/g, '').trim();\n  if (cleaned === '' || cleaned === '-') return 0;\n  const n = parseFloat(cleaned);\n  return Number.isFinite(n) ? n : null;\n};\n\nconst findRow = (label) => rows.find(r => String(r[0]).trim().toLowerCase() === label.toLowerCase());\n\nconst revenue = findRow('Revenue');\nconst ebitda = findRow('EBITDA');\nconst ebitdaMargin = findRow('EBITDA Margin');\nconst pat = findRow('PAT');\nconst patMargin = findRow('PAT Margin');\nconst grossProfit = findRow('Gross Profit');\nconst gpMargin = findRow('Gross Profit Margin');\n\nconst checkMargin = (numerator, denominator, marginRow, label) => {\n  if (!numerator || !denominator || !marginRow) return;\n  for (let i = 1; i <= dataCols; i++) {\n    const n = num(numerator[i]);\n    const d = num(denominator[i]);\n    const m = num(marginRow[i]);\n    if (n === null || d === null || m === null || d === 0) continue;\n    const expected = (n / d) * 100;\n    const diff = Math.abs(expected - m);\n    if (diff > 0.5) {\n      issues.push({\n        row: label,\n        column: header[i],\n        expected: expected.toFixed(2) + '%',\n        got: m.toFixed(2) + '%',\n        diff_pp: diff.toFixed(2)\n      });\n    }\n  }\n};\n\ncheckMargin(grossProfit, revenue, gpMargin, 'Gross Profit Margin');\ncheckMargin(ebitda, revenue, ebitdaMargin, 'EBITDA Margin');\ncheckMargin(pat, revenue, patMargin, 'PAT Margin');\n\nreturn [{\n  json: {\n    ...input,\n    validation: {\n      passed: issues.length === 0,\n      issues_count: issues.length,\n      issues\n    }\n  }\n}];\n"
+      },
+      "id": "07-validate-math",
+      "name": "Validate Math",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "08-respond-success",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1500,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================================================================\n// Centralized error normalizer for any node that wires into this branch.\n// =============================================================================\n\nconst raw = $input.first().json;\n\nconst message =\n  raw?.error?.message ||\n  raw?.message ||\n  (typeof raw === 'string' ? raw : null) ||\n  'Unknown error occurred while processing the PDF.';\n\nconst statusCode =\n  raw?.error?.statusCode ||\n  raw?.statusCode ||\n  (message.toLowerCase().includes('invalid url') ? 400 :\n   message.toLowerCase().includes('missing') ? 400 :\n   message.toLowerCase().includes('too large') ? 413 :\n   message.toLowerCase().includes('not from bse') ? 400 :\n   500);\n\nreturn [{\n  json: {\n    success: false,\n    error: {\n      message,\n      status: statusCode,\n      timestamp: new Date().toISOString()\n    }\n  }\n}];\n"
+      },
+      "id": "09-format-error",
+      "name": "Format Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": "={{ $json.error.status }}",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "10-respond-error",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        520
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook (POST /process-pdf)": {
+      "main": [
+        [
+          {
+            "node": "Validate URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate URL": {
+      "main": [
+        [
+          {
+            "node": "Download PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download PDF": {
+      "main": [
+        [
+          {
+            "node": "Build Gemini Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Gemini Request": {
+      "main": [
+        [
+          {
+            "node": "Call Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Gemini": {
+      "main": [
+        [
+          {
+            "node": "Parse Gemini Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Gemini Response": {
+      "main": [
+        [
+          {
+            "node": "Validate Math",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Math": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Error": {
+      "main": [
+        [
+          {
+            "node": "Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "niveshaay-pnl-pipeline"
+  },
+  "tags": [
+    {
+      "name": "niveshaay",
+      "createdAt": "2026-06-16T11:00:00.000Z"
+    },
+    {
+      "name": "pnl-pipeline",
+      "createdAt": "2026-06-16T11:00:00.000Z"
+    }
+  ]
+}

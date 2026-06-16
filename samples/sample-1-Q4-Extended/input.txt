@@ -1,0 +1,12 @@
+iValue Infosolutions Limited — Q4 & Full Year FY26 Consolidated P&L
+Source: BSE Corporate Filing (sample reference from Niveshaay task brief)
+URL pattern: https://www.bseindia.com/xml-data/corpfiling/AttachLive/<UUID>.pdf
+
+Pull a current PDF from:
+  https://www.bseindia.com/corporates/Forth_Results.html
+
+Quarter type: extended (Q4 — 6 data columns)
+Columns: Q4 FY26 | Q3 FY26 | Q4 FY25 | FY26 | FY25
+
+This output mirrors the reference image shipped with the task assignment
+(samples/sample-output-reference.jpeg).
