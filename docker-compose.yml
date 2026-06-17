@@ -38,7 +38,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       # Allow large PDFs (default is 16 MB)
-      - N8N_PAYLOAD_SIZE_MAX=32
+      - N8N_PAYLOAD_SIZE_MAX=100
     volumes:
       - n8n_data:/home/node/.n8n
       - ./workflow:/workflows:ro
