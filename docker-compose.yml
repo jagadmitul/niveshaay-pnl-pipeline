@@ -1,16 +1,3 @@
-# =============================================================================
-# Niveshaay P&L Pipeline — Local Development Stack
-# =============================================================================
-# Brings up n8n + Redis (cache) on localhost for one-command setup.
-# Usage:
-#   1. Copy .env.example -> .env, fill GEMINI_API_KEY
-#   2. docker compose up -d
-#   3. Open http://localhost:5678 — first-run sets up admin account
-#   4. Import workflow/niveshaay-pnl-pipeline.json from the n8n UI
-#   5. Set GEMINI_API_KEY in n8n Credentials (Settings -> Credentials)
-#   6. Activate the workflow — webhook listens on /webhook/process-pdf
-# =============================================================================
-
 services:
   n8n:
     image: docker.n8n.io/n8nio/n8n:latest
@@ -25,19 +12,13 @@ services:
       - NODE_ENV=production
       - WEBHOOK_URL=${WEBHOOK_URL:-http://localhost:5678/}
       - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-Asia/Kolkata}
-      # Required. Set N8N_ENCRYPTION_KEY in .env to a random 32+ char string.
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
-      # n8n blocks $env access in expressions by default for security.
-      # We unblock so workflows can read GEMINI_API_KEY / GEMINI_MODEL from env.
-      # In production you'd switch to n8n credentials instead.
+      # Required for $env.GEMINI_API_KEY inside Code nodes
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
-      # Forward Gemini key to workflows via $env.GEMINI_API_KEY
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
-      # Cache via Redis
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-pro}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      # Allow large PDFs (default is 16 MB)
       - N8N_PAYLOAD_SIZE_MAX=100
     volumes:
       - n8n_data:/home/node/.n8n
@@ -49,12 +30,6 @@ services:
     image: redis:7-alpine
     container_name: niveshaay-redis
     restart: unless-stopped
-    # Note: Redis is reachable from n8n inside the Docker network at host "redis".
-    # We deliberately do NOT publish 6379 to the host — many devs already have
-    # a Redis listening there. Uncomment the `ports` block below if you need
-    # to inspect Redis from your laptop's terminal.
-    # ports:
-    #   - "6380:6379"
     expose:
       - "6379"
     volumes:

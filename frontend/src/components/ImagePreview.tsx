@@ -5,13 +5,6 @@ interface Props {
   data: PnLData;
 }
 
-/**
- * Niveshaay-branded P&L card. Layout mirrors Arjun's WhatsApp reference:
- *  - White title bar with company name centred + the Niveshaay logo top-right
- *  - Dark-green column header row
- *  - Highlighted margin rows + bold totals
- *  - Auto-calculated Change (in %) columns between data columns
- */
 export const ImagePreview = forwardRef<HTMLDivElement, Props>(({ data }, ref) => {
   const rows = collectRows(data);
   if (rows.length === 0) return null;
@@ -24,7 +17,6 @@ export const ImagePreview = forwardRef<HTMLDivElement, Props>(({ data }, ref) =>
   return (
     <div ref={ref} className="bg-white">
       <div className="border border-niveshaay-light/40 rounded-lg overflow-hidden shadow-soft">
-        {/* Title bar: white background so the logo (dark text on transparent) shows clean */}
         <div className="relative bg-white px-4 py-3 border-b-2 border-niveshaay-mid flex items-center justify-between gap-4">
           <div className="w-16 flex-shrink-0" />
           <h2 className="flex-1 text-center text-base font-bold tracking-wide text-niveshaay-dark">

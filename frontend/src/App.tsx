@@ -46,8 +46,6 @@ export default function App() {
           </p>
         </section>
 
-        {/* No em-dashes anywhere in headings, banners, or labels below. */}
-
         <PdfLinkForm
           disabled={status === 'loading'}
           onSubmit={submit}
@@ -75,9 +73,8 @@ export default function App() {
                 </h2>
                 <p className="mt-2 text-sm text-niveshaay-ink/70">{result.message}</p>
                 <p className="mt-3 text-xs text-niveshaay-ink/50">
-                  This is the contract Arjun's prompt defines for non-P&amp;L documents
-                  (e.g. earnings-call transcripts, press releases). The pipeline returned
-                  the expected response.
+                  Expected for non-P&amp;L documents (e.g. earnings-call transcripts,
+                  press releases).
                 </p>
               </div>
             )}
