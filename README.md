@@ -33,7 +33,7 @@ $10 Gemini key:
 | Working web form + processing pipeline | ✅ React frontend **and** the n8n workflow accepts the same payload |
 | 2–3 sample JSON outputs | ✅ Q1 (standard), Q2 (extended), Q4 (extended) — recomputed and cross-checked |
 | Source code | ✅ Full repo: importable workflow JSON, React app, image generator |
-| README | ✅ This file + 4 ADRs + production-readiness notes |
+| README | ✅ This file (setup + architecture + scaling notes) |
 | **Bonus** | ✅ Math-validation layer (catches Gemini hallucinations) |
 | **Bonus** | ✅ Brand-accurate P&L card render that mirrors the WhatsApp output |
 | **Bonus** | ✅ Cost / latency / token metadata returned with every response |
@@ -59,9 +59,6 @@ flowchart LR
   h --> fe
   errR --> fe
 ```
-
-Full diagram, failure-isolation table, and the "why" behind each node:
-[`docs/architecture-diagram.md`](docs/architecture-diagram.md).
 
 ---
 
@@ -129,54 +126,24 @@ and inside the `samples/` folder.
 ```
 .
 ├── README.md                          ← you are here
-├── ARCHITECTURE.md                    ← single-page architecture decisions
-├── ROADMAP.md                         ← what we'd ship next
 ├── docker-compose.yml                 ← n8n + Redis local stack
 ├── .env.example                       ← Gemini key + n8n config
 │
 ├── workflow/
-│   ├── niveshaay-pnl-pipeline.json   ← MAIN n8n workflow (import this)
-│   ├── prompt.txt                    ← Gemini system prompt (source of truth)
-│   └── README.md                     ← n8n setup + node-by-node walkthrough
+│   └── niveshaay-pnl-pipeline.json   ← MAIN n8n workflow (import this)
 │
 ├── frontend/                          ← React + Vite + Tailwind
-│   ├── package.json
-│   ├── src/
-│   │   ├── App.tsx                   ← header, form, result, tabs
-│   │   ├── components/
-│   │   │   ├── PdfLinkForm.tsx
-│   │   │   ├── SampleLinks.tsx       ← 3 real BSE links to test
-│   │   │   ├── LoadingState.tsx
-│   │   │   ├── ErrorDisplay.tsx
-│   │   │   ├── JsonViewer.tsx        ← syntax-highlighted JSON
-│   │   │   └── ImagePreview.tsx      ← P&L card render
-│   │   ├── hooks/usePdfProcessing.ts
-│   │   └── lib/
-│   │       ├── api.ts
-│   │       └── types.ts
-│   └── public/niveshaay-logo.png
+│   ├── api/process-pdf.ts            ← Vercel serverless proxy to Railway
+│   ├── src/App.tsx
+│   └── src/components/ ...
 │
-├── image-generator/                   ← static reference for the WhatsApp card
-│   ├── template.html
-│   ├── styles.css
-│   ├── logo.png
-│   └── README.md
+├── n8n-deploy/                        ← Railway Dockerfile + entrypoint
 │
-├── samples/                           ← 3 sample outputs + reference image
-│   ├── sample-output-reference.jpeg   ← Arjun's iValue card (visual target)
-│   ├── sample-1-Q4-Extended/          ← iValue Infosolutions, mirrors brief
-│   ├── sample-2-Q1-Standard/          ← TCS Q1 (no Gross Profit row)
-│   └── sample-3-Q2-Extended/          ← Asian Paints Q2 (with H1 columns)
-│
-└── docs/
-    ├── prompt.md                      ← prompt rationale
-    ├── architecture-diagram.md        ← full Mermaid + failure table
-    ├── production-readiness.md        ← prototype → prod checklist
-    └── decisions/                     ← Architecture Decision Records
-        ├── 001-pure-n8n.md
-        ├── 002-gemini-model.md
-        ├── 003-caching.md
-        └── 004-image-generation.md
+└── samples/                           ← real BSE outputs
+    ├── 01-bharat-forge-q4-fy26.json
+    ├── 02-relaxo-footwears.json
+    ├── 03-datamatics-global.json
+    └── 04-transrail-lighting.json     ← edge case: earnings-call transcript
 ```
 
 ---
@@ -318,16 +285,12 @@ POST http://localhost:5678/webhook/process-pdf
   workflow code.
 - **Math validation** — Gemini occasionally drifts on margin recomputes;
   catching it at workflow time saves analyst time.
-- **Production-shaped repo** — ADRs, docker-compose, env separation, the
-  cache hook — Niveshaay's tech team can extend this without rewrites.
+- **Production-shaped repo** — docker-compose for local, env separation,
+  Railway/Vercel for live — extendable without rewrites.
 
 ### Deliberately skipped (and why)
-- **Real Gemini test runs in the committed samples.** The `$10` budget is
-  on a shared key — burning it would have been wasteful. Samples are
-  hand-verified against the exact prompt rules so they show what a clean
-  run produces. Re-run with `docker compose up` + paste any real URL.
-- **Authentication on the webhook.** Documented in `production-readiness.md`
-  as the first thing to add before deploying outside a private network.
+- **Authentication on the webhook.** First thing to add before deploying
+  outside a private network; out of scope for a prototype.
 - **Auto-retry on Gemini 4xx.** Retrying after a 400 just burns budget;
   the front-end can re-trigger after fixing the input.
 
@@ -341,7 +304,7 @@ POST http://localhost:5678/webhook/process-pdf
 | End-to-end functionality | `docker compose up` + paste sample URL → JSON in <15s |
 | Code quality | `workflow/niveshaay-pnl-pipeline.json` Code nodes are commented; `frontend/src/` is fully typed |
 | Error handling | Single error shape, see "Error response" above. Frontend `ErrorDisplay.tsx` shows the spec details + remediation hints |
-| Documentation | This README + 4 ADRs + production-readiness + workflow README |
+| Documentation | This README (setup + architecture + scaling) |
 
 ---
 
