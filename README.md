@@ -372,6 +372,93 @@ consolidated.
 
 ---
 
+## Scaling to large PDFs
+
+| Filing size | Pages | Current path | Verdict |
+|---|---|---|---|
+| Quarterly results (typical) | 5–30 | inline base64 → Gemini | ✅ works, 25–50 s |
+| Annual report | 100–300 | inline base64 → Gemini | ✅ works up to 30 MB |
+| 30–200 MB | 500–2 000 | inline base64 → Gemini | ❌ exceeds 20 MB Gemini inline limit |
+| GB-scale, 5 000–10 000+ pages | 5 000+ | — | ❌ needs a different architecture |
+
+The current synchronous design (browser → Vercel function → Railway n8n → Gemini,
+all in one HTTP round trip) is bounded by **Vercel Hobby's 60 s function cap**.
+Anything that takes longer than that — whether because the PDF is huge, because
+Gemini is slow on a complex filing, or because the network is slow — gets
+killed mid-response. That's why the cap matters more than the file size.
+
+**Two changes unlock multi-GB / 10 000-page PDFs**, both well-known patterns:
+
+### 1. Switch the Gemini call from `inline_data` to the Files API
+
+Gemini's `inline_data` part is capped at 20 MB. The Files API supports up to
+**2 GB per file** and up to **1 000 pages of content tokens** per request
+(≈ 258 tokens per page, 1 M-token context window). Migration shape:
+
+```
+POST https://generativelanguage.googleapis.com/upload/v1beta/files?key=…
+  body: <pdf bytes>
+  → { file: { uri: "files/abc123", mimeType: "application/pdf", … } }
+
+POST https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent
+  body: { contents: [{ parts: [
+    { text: PROMPT },
+    { fileData: { fileUri: "files/abc123", mimeType: "application/pdf" } }
+  ]}]}
+```
+
+The workflow's **Build Gemini Request** node would branch on `size_mb > 18`:
+small PDFs stay inline (saves one round trip), larger PDFs go through Files API
+(takes one extra ~2–10 s upload step). The rest of the workflow is unchanged.
+
+### 2. Switch the front of the pipeline from synchronous to async polling
+
+For anything that runs longer than ~50 s, the browser shouldn't hold a single
+HTTP request open. Production shape:
+
+```
+Browser POST /api/jobs                          → returns { job_id, status: "queued" }
+                                                  (Vercel function returns in <1 s)
+
+Background worker on Railway / a queue          → picks up job_id, runs the
+(BullMQ + Redis is the natural fit here —         workflow, writes the result
+Redis is already in the docker-compose stack)     to Vercel KV or Postgres
+                                                  keyed by job_id
+
+Browser GET /api/jobs/:job_id  (polled every    → returns { status, result?, error? }
+3 s with backoff, or via Server-Sent Events)
+```
+
+Concretely:
+
+- Replace the current Vercel function with two endpoints: `POST /api/jobs`
+  (enqueue) and `GET /api/jobs/:id` (poll).
+- Move the workflow into a Railway worker that pulls from a BullMQ queue
+  backed by the Redis already in `docker-compose.yml`.
+- Store job state + final JSON in **Vercel KV** (free tier ≈ 256 MB) or in a
+  small **Postgres** instance on Railway (also free).
+- Frontend polls every 3 s with exponential backoff. Show a real progress
+  indicator instead of the current single spinner.
+
+Effort: ~2–3 focused days. Done as a follow-up because the assignment scope
+is quarterly P&L filings, which never realistically cross 30 MB.
+
+### 3. For 5 000+ page filings, add PDF preprocessing
+
+Even with Files API, a 10 000-page PDF is wasteful: the prompt only needs the
+P&L table, not the rest of the annual report. A preprocessing step would:
+
+1. Extract text with `pdftotext` / pdf.js.
+2. Locate pages mentioning "Profit", "EBITDA", "Revenue from operations",
+   "Statement of Profit and Loss", etc.
+3. Re-emit a 5–20-page slice and send only that to Gemini.
+
+This drops Gemini latency and cost by 50–100×, and is the only realistic way
+to extract a single table out of a multi-thousand-page document inside any
+sensible time budget.
+
+---
+
 ## Live deployment topology
 
 | Layer | Hosted on | URL |
